@@ -1,0 +1,101 @@
+diff --git a/lib/Makefile.am b/lib/Makefile.am
+index e880e41..321d822 100644
+--- a/lib/Makefile.am
++++ b/lib/Makefile.am
+@@ -12,6 +12,7 @@ libgif_la_SOURCES = dgif_lib.c  \
+ 					gif_hash.c  \
+ 					gif_hash.h	\
+                     gifalloc.c  \
++		    openbsd-reallocarray.c \
+                     gif_err.c   \
+ 					gif_lib_private.h \
+ 		    quantize.c
+diff --git a/lib/gif_lib.h b/lib/gif_lib.h
+index ac0307d..c62e89d 100644
+--- a/lib/gif_lib.h
++++ b/lib/gif_lib.h
+@@ -244,6 +244,9 @@ extern ColorMapObject *GifUnionColorMap(const ColorMapObject *ColorIn1,
+                                      GifPixelType ColorTransIn2[]);
+ extern int GifBitSize(int n);
+ 
++extern void *
++reallocarray(void *optr, size_t nmemb, size_t size);
++
+ /******************************************************************************
+  Support for the in-core structures allocation (slurp mode).              
+ ******************************************************************************/
+diff --git a/lib/gifalloc.c b/lib/gifalloc.c
+index f4118d6..94da5d9 100644
+--- a/lib/gifalloc.c
++++ b/lib/gifalloc.c
+@@ -355,9 +355,10 @@ GifMakeSavedImage(GifFileType *GifFile, const SavedImage *CopyFrom)
+             }
+ 
+             /* next, the raster */
+-            sp->RasterBits = (unsigned char *)malloc(sizeof(GifPixelType) *
+-                                                   CopyFrom->ImageDesc.Height *
+-                                                   CopyFrom->ImageDesc.Width);
++            sp->RasterBits = (unsigned char *)reallocarray(NULL,
++                                                  (CopyFrom->ImageDesc.Height *
++                                                  CopyFrom->ImageDesc.Width),
++						  sizeof(GifPixelType));
+             if (sp->RasterBits == NULL) {
+                 FreeLastSavedImage(GifFile);
+                 return (SavedImage *)(NULL);
+@@ -368,9 +369,9 @@ GifMakeSavedImage(GifFileType *GifFile, const SavedImage *CopyFrom)
+ 
+             /* finally, the extension blocks */
+             if (sp->ExtensionBlocks != NULL) {
+-                sp->ExtensionBlocks = (ExtensionBlock *)malloc(
+-                                      sizeof(ExtensionBlock) *
+-                                      CopyFrom->ExtensionBlockCount);
++                sp->ExtensionBlocks = (ExtensionBlock *)reallocarray(NULL,
++                                      CopyFrom->ExtensionBlockCount,
++				      sizeof(ExtensionBlock));
+                 if (sp->ExtensionBlocks == NULL) {
+                     FreeLastSavedImage(GifFile);
+                     return (SavedImage *)(NULL);
+diff --git a/lib/openbsd-reallocarray.c b/lib/openbsd-reallocarray.c
+new file mode 100644
+index 0000000..aa70686
+--- /dev/null
++++ b/lib/openbsd-reallocarray.c
+@@ -0,0 +1,38 @@
++/*	$OpenBSD: reallocarray.c,v 1.1 2014/05/08 21:43:49 deraadt Exp $	*/
++/*
++ * Copyright (c) 2008 Otto Moerbeek <otto@drijf.net>
++ *
++ * Permission to use, copy, modify, and distribute this software for any
++ * purpose with or without fee is hereby granted, provided that the above
++ * copyright notice and this permission notice appear in all copies.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
++ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
++ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
++ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
++ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
++ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
++ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
++ */
++
++#include <sys/types.h>
++#include <errno.h>
++#include <stdint.h>
++#include <stdlib.h>
++
++/*
++ * This is sqrt(SIZE_MAX+1), as s1*s2 <= SIZE_MAX
++ * if both s1 < MUL_NO_OVERFLOW and s2 < MUL_NO_OVERFLOW
++ */
++#define MUL_NO_OVERFLOW	((size_t)1 << (sizeof(size_t) * 4))
++
++void *
++reallocarray(void *optr, size_t nmemb, size_t size)
++{
++	if ((nmemb >= MUL_NO_OVERFLOW || size >= MUL_NO_OVERFLOW) &&
++	    nmemb > 0 && SIZE_MAX / nmemb < size) {
++		errno = ENOMEM;
++		return NULL;
++	}
++	return realloc(optr, size * nmemb);
++}
